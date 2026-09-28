@@ -11,6 +11,13 @@ the additions below. The `:beta` tag is mutable, so each published build has its
 
 ### Added
 
+- Every recovery action the container takes for itself is now visible where people look: a
+  warning-coloured row on the Status tab's timeline, an "Automatic recovery acted"
+  notification event, a `recovery` list in the API and a `bb64_recovery_actions_24h` metric.
+  The watchdog's kills and lock removals, the service watch's restarts of bzserv and
+  bb-doctor's `--fix` repairs all write to one recovery log. From a user who wanted to know
+  whether the timeline's normal pass cycle was an automatic restart; it wasn't, and now a
+  restart would say so.
 - An Automatic recovery switch on the Settings tab. It overrides `ENABLE_WATCHDOG` and takes
   effect within a minute without a restart: the watchdog's service script polls the switch while
   parked and the watchdog reads it every cycle, so no watchdog process exists while it is off,
@@ -39,6 +46,9 @@ the additions below. The `:beta` tag is mutable, so each published build has its
 
 ### Fixed
 
+- The Settings tab's Warnings and events list and its Dismissed table now follow dismissals made
+  on the Status tab or the Monitor without a reload. Both are polled every half minute and
+  redrawn only when the answer changed, so checkboxes being edited are left alone.
 - An inherit whose progress file never reached the done stage no longer shows as in progress for
   ever. A user's client left the file at "after files swap, 60%" for days while passes ran
   normally, and the Status tab, the terminal monitor and bb-doctor all kept announcing an

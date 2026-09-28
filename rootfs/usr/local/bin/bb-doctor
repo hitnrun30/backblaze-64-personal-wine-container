@@ -44,7 +44,8 @@ OK()   { echo "  [ ok ] $*"; ok=$((ok+1)); }
 INFO() { echo "  [info] $*"; info=$((info+1)); }
 WARN() { echo "  [warn] $*"; warn=$((warn+1)); }
 BAD()  { echo "  [FAIL] $*"; bad=$((bad+1)); }
-FIXED(){ echo "         -> fixed: $*"; fixed=$((fixed+1)); }
+. /usr/local/lib/bb-record.sh 2>/dev/null || bb_record() { :; }
+FIXED(){ echo "         -> fixed: $*"; fixed=$((fixed+1)); bb_record doctor "$*"; }
 NOTE() { echo "         $*"; }
 
 proc_match() {

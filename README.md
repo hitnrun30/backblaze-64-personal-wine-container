@@ -305,7 +305,8 @@ flagged.
 Set `ENABLE_WATCHDOG=true` to have the container fix both conditions itself. It checks
 every five minutes and takes the smallest action that clears the fault: deleting the stale
 lock for `WEDGE`, or killing the upload children and the pass for `HANG` so that bzserv starts a fresh pass.
-Every action is logged. After detecting a fault it waits 30 minutes before acting
+Every action is logged, shown as a warning row on the Status tab's timeline, sent as an
+"Automatic recovery acted" notification and counted in the metrics. After detecting a fault it waits 30 minutes before acting
 again - whether or not the recovery succeeded - so a fault it cannot fix produces one
 log line per cooldown rather than a retry storm. The cooldown always stays longer
 than the stall threshold, so the watchdog can never re-kill the healthy pass it just

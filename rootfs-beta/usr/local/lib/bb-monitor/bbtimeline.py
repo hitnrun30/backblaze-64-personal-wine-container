@@ -48,9 +48,26 @@ def span(seconds):
 
 class Timeline:
     def __init__(self):
-        self.entries = []      # [{at, state, note}], oldest first
+        self.entries = []      # [{at, state, note, level?}], oldest first
         self.last_state = None
         self.period = None
+        self.recovery_seen = 0   # newest recovery event already on the timeline
+
+    def add_recovery(self, events):
+        """Recovery actions as warning-level rows, so a restart the container
+        did for itself is visible where the person looks first. Returns the
+        rows added."""
+        added = []
+        for e in events:
+            if e["at"] <= self.recovery_seen:
+                continue
+            added.append({"at": int(e["at"]), "state": None,
+                          "note": "%s: %s" % (e["source"], e["text"]), "level": "warn"})
+            self.recovery_seen = e["at"]
+        if added:
+            self.entries += added
+            self.entries.sort(key=lambda r: r["at"])
+        return added
 
     def observe(self, api, now=None):
         """Feed one API payload. Returns the entries added."""

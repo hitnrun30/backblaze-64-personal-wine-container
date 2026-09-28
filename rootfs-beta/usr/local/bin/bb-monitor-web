@@ -1416,9 +1416,17 @@ function renderNotices(d){
       }).join('') + '</tbody></table>'
     : '<p class="dim">Nothing dismissed.</p>';
 }
+// Polled, because dismissals happen on the Status tab and the Monitor, and a
+// list loaded once showed them only after a reload. Redrawn only when the
+// answer changed, so the checkboxes someone is editing are left alone.
+var NOTICES_JSON = '';
 function loadNotices(){
-  return fetch('manage/notices', {cache:'no-store'}).then(function(r){ return r.json(); })
-    .then(function(d){ NOTICES = d; renderNotices(d); renderKinds(); });
+  return fetch('manage/notices', {cache:'no-store'}).then(function(r){ return r.text(); })
+    .then(function(text){
+      if(text === NOTICES_JSON) return;
+      NOTICES_JSON = text; var d = JSON.parse(text);
+      NOTICES = d; renderNotices(d); renderKinds();
+    });
 }
 document.getElementById('notices-reset').addEventListener('click', function(){
   var err = document.getElementById('notices-err'), msg = document.getElementById('notices-msg');
@@ -1549,6 +1557,7 @@ loadWatchdog();
 loadDoctor();
 setInterval(loadQuiet, 30000);
 setInterval(loadWatchdog, 30000);
+setInterval(loadNotices, 30000);
 </script>
 </body></html>
 """
@@ -1622,6 +1631,7 @@ STATUS_HTML = """<!doctype html>
   .tl time{color:var(--dim);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
     flex:0 0 5.5em;}
   .tl .note{color:var(--dim);}
+  .tl li.warn .note{color:var(--warn);}
   .err{color:var(--bad);margin-top:8px;}
   @media (max-width:560px){ table,thead,tbody,tr,th,td{display:block;}
     thead{display:none;} tr{border-bottom:1px solid var(--border);padding:6px 0;}
@@ -1954,7 +1964,7 @@ function renderTimeline(list){
   // should open on the answer. Summary lines after a spell of uploading sit in
   // the list at the moment the spell ended.
   ul.innerHTML = list.slice().reverse().map(function(t){
-    return '<li><time>' + esc(fmtTime(t.at)) + '</time>' +
+    return '<li' + (t.level === 'warn' ? ' class="warn"' : '') + '><time>' + esc(fmtTime(t.at)) + '</time>' +
            (t.state ? '<span>' + esc(t.state) + '</span>' : '') +
            (t.note ? '<span class="note">' + esc(t.note) + '</span>' : '') + '</li>';
   }).join('');
@@ -2474,6 +2484,9 @@ def api_v1_payload(d):
         # cache_bytes is the page cache charged to the container, which is what
         # docker stats adds on top of used_bytes and a dedup scan fills.
         "memory": dict(gauge(mem) or {}, cache_bytes=mem[3]) if mem and len(mem) > 3 and mem[3] is not None else gauge(mem),
+        # What the container did for itself in the last day: watchdog kills,
+        # service restarts, doctor repairs. Empty when it did nothing.
+        "recovery": bbdata.recovery_events(since=int(time.time()) - 86400),
         "memory_by_process": d.get("memory_by_process"),
         "swap": gauge(swap),
         "backup": {"done_bytes": b.get("done"), "total_bytes": b.get("total"),
@@ -2692,6 +2705,7 @@ def _after_snapshot(api):
     now = time.time()
     with _timeline_lock:
         _timeline.observe(api, now)
+        _timeline.add_recovery(bbdata.recovery_events(since=_timeline.recovery_seen))
     try:
         bbnotify.observe(api)
     except Exception as exc:                   # a notifier fault must not stop the poll
@@ -2787,6 +2801,7 @@ def metrics_text(api):
     m = api.get("memory") or {}
     g("memory_used_bytes", m.get("used_bytes"), "Container memory in use by its processes (anon), not counting the page cache")
     g("memory_cache_bytes", m.get("cache_bytes"), "Page cache charged to the container; what docker stats adds on top of used")
+    g("recovery_actions_24h", len(api.get("recovery") or []), "Recovery actions by the watchdog, the service watch or bb-doctor --fix in the last 24 hours")
     g("memory_total_bytes", m.get("total_bytes"), "Container memory limit or host total")
     sw = api.get("swap") or {}
     g("swap_used_bytes", sw.get("used_bytes"), "Swap in use")

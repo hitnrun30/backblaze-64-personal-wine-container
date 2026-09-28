@@ -123,6 +123,9 @@ EVENTS = (
      "A quarter, half, three quarters of the way, or the first terabyte.", False),
     ("build",         "Container updated",
      "The container is running a different build than it was.", False),
+    ("recovery",      "Automatic recovery acted",
+     "The watchdog stopped a stuck pass or cleared a stale lock, the service watch restarted "
+     "bzserv, or bb-doctor --fix repaired something. The message says which.", False),
     ("client",        "Backblaze client updated",
      "The Backblaze client is running a different version than it was. The container's "
      "updater installs the newest client at every start, so a change here is what to "
@@ -345,6 +348,8 @@ def conditions(api, health=None):
         "milestones": sorted(m["key"] for m in (api.get("milestones") or [])),
         "build": api.get("build"),
         "client_version": (api.get("client") or {}).get("version"),
+        "recovery_at": max([e["at"] for e in (api.get("recovery") or [])] or [0]),
+        "recovery": api.get("recovery") or [],
         "health_line": hv or None,
     }
 
@@ -399,8 +404,13 @@ def observe(api, conf=None, deliver=None, now=None):
             fired.append(("client", "Backblaze client updated",
                           "Now running Backblaze client %s (was %s)."
                           % (cur["client_version"], prev["client_version"])))
+        # Each recovery action once, by its timestamp against the last one seen.
+        if conf["events"].get("recovery") and prev.get("recovery_at") is not None:
+            for e in cur["recovery"]:
+                if e["at"] > prev["recovery_at"]:
+                    fired.append(("recovery", "Automatic recovery acted", "%s: %s" % (e["source"], e["text"])))
     now_conditions = dict(cur_flags, milestones=cur["milestones"], build=cur["build"],
-                          client_version=cur["client_version"])
+                          client_version=cur["client_version"], recovery_at=cur["recovery_at"])
     # Only when something moved. Written on every poll this was 43,000 atomic
     # replaces a day on the user's appdata share, each one taking the store lock
     # that key creation and use also want, for a record that had not changed.

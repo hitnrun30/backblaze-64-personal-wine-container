@@ -535,6 +535,24 @@ def inherit(text=None, file_mtime=None, log_mtime=None, passes=None):
             "result": attr("ibs_final_result", int)}
 
 
+RECOVERY_LOG = "/config/bb-api/recovery.log"
+
+
+def recovery_events(since=0, limit=200):
+    """What the watchdog, the service watch and bb-doctor --fix have done:
+    [{at, source, text}], oldest first, after `since`. Written by
+    bb-record.sh, one tab-separated line per action."""
+    out = []
+    for line in read(RECOVERY_LOG).splitlines()[-limit:]:
+        parts = line.split("\t", 2)
+        if len(parts) != 3 or not parts[0].isdigit():
+            continue
+        at = int(parts[0])
+        if at > since:
+            out.append({"at": at, "source": parts[1][:20], "text": parts[2][:300]})
+    return out
+
+
 PASSED_LOCK_POINT = "bz_done file recorded for upload"
 
 

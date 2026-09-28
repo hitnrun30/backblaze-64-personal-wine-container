@@ -79,6 +79,10 @@ procage(){ printf '%s (bztransmit.exe) S 1 1 1 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 %
   "$1" $(( (UP - $2) * 100 )) > "$FX/proc/$1/stat"; }
 agef(){ perl -e 'my $t=time-$ARGV[1]; utime $t,$t,$ARGV[0]' "$1" "$2"; }
 spam(){ for i in $(seq 1 "$1"); do echo "10:00:0$i - Failed to grab fourHourLock lock (DoBackupPass.cpp:111)"; done; }
+# --fix actions are recorded through bb-record.sh into the recovery log the
+# monitor reads; the library is sourced by absolute path, redirected here.
+sed -i.bak "s#^\. /usr/local/lib/bb-record.sh#. $HERE/../rootfs/usr/local/lib/bb-record.sh#" "$FX/bb-doctor" && rm -f "$FX/bb-doctor.bak"
+export BB_RECOVERY_LOG="$FX/recovery.log"
 run(){ env WINEPREFIX="$PFX" PATH="$FX/bin:$PATH" "$FX/bb-doctor" "$@" 2>/dev/null; }
 
 # The full wedge signature: a 30-minute lock nothing live created, grab
@@ -178,6 +182,7 @@ mkdir -p "$PFX/drive_c/windows/system32" "$PFX/drive_c/windows/syswow64"
 rm -f "$PFX/drive_c/windows/system32/rundll32.exe.manifest" "$PFX/drive_c/windows/syswow64/rundll32.exe.manifest"
 has "$(run)" "\[warn\] supportedOS manifest missing in: system32 syswow64" "manifest: a missing manifest is reported"
 has "$(run --fix)" "fixed: wrote the supportedOS manifest into: system32 syswow64" "manifest: --fix writes it"
+grep -q "	doctor	wrote the supportedOS manifest" "$FX/recovery.log" && echo "PASS record: the repair is in the recovery log" || { echo "FAIL record: the repair was not recorded"; FAILED=$((FAILED+1)); }
 grep -q '8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a' "$PFX/drive_c/windows/syswow64/rundll32.exe.manifest" && echo "PASS manifest: with the Windows 10 supportedOS id" || { echo "FAIL manifest: file content wrong"; FAILED=$((FAILED+1)); }
 has "$(run)" "\[ ok \] rundll32 supportedOS manifest present" "manifest: and it is present afterwards"
 

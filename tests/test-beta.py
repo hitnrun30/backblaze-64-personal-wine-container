@@ -973,6 +973,31 @@ ok('bb64_health_dismissed{kind="stale"} 0' in _metrics,
    'every kind gets both gauges, so neither series appears and disappears')
 
 print()
+# ---- recovery log: actions reach the timeline and the notifications ---------------
+_rl = os.path.join(FIX, "recovery.log")
+open(_rl, "w").write("1700000100\twatchdog\trecovered: killed push children [12] and the pass [11]\n"
+                     "not a line\n1700000400\tservice\tbzserv has stopped - starting it again\n")
+_rl_before = bbdata.RECOVERY_LOG; bbdata.RECOVERY_LOG = _rl
+try:
+    _ev = bbdata.recovery_events()
+    _ev2 = bbdata.recovery_events(since=1700000100)
+finally:
+    bbdata.RECOVERY_LOG = _rl_before
+ok([e["source"] for e in _ev] == ["watchdog", "service"] and _ev[0]["at"] == 1700000100, "recovery events parse, malformed lines skipped: %r" % _ev)
+ok([e["at"] for e in _ev2] == [1700000400], "since= returns only newer events")
+_tl = bbtimeline.Timeline()
+ok(len(_tl.add_recovery(_ev)) == 2 and _tl.entries[0]["level"] == "warn" and _tl.entries[0]["note"].startswith("watchdog: "),
+   "recovery actions become warning-level timeline rows")
+ok(_tl.add_recovery(_ev) == [], "and are not added twice")
+_r_api = lambda evs: dict(_api(False), recovery=evs)
+_rec_ev1 = [{"at": 1700000100, "source": "watchdog", "text": "recovered: stopped the pass"}]
+_rec_ev2 = _rec_ev1 + [{"at": 1700000900, "source": "service", "text": "bzserv has stopped - starting it again"}]
+bbnotify.observe(_r_api(_rec_ev1), NCONF, deliver=lambda *a: None)
+_fired = bbnotify.observe(_r_api(_rec_ev2), NCONF, deliver=lambda *a: None)
+ok([f[0] for f in _fired] == ["recovery"] and "service: bzserv has stopped" in _fired[0][2],
+   "a new recovery action fires one notification with its text: %r" % _fired)
+ok(bbnotify.observe(_r_api(_rec_ev2), NCONF, deliver=lambda *a: None) == [], "and not again")
+
 # ---- container memory: the processes' own, with the cache beside it -------------
 # docker stats charges the page cache to the container, and a dedup scan reads
 # every file, so a user saw 36 GB there while the host called most of it free.

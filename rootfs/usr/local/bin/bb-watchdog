@@ -74,6 +74,9 @@ if [ "$COOLDOWN_MIN" -le "$STALL_MIN" ]; then
 fi
 
 say() { echo "[bb-watchdog] $(date '+%Y-%m-%d %H:%M:%S') $*"; }
+# Actions also go to the recovery log the monitor reads; see bb-record.sh.
+. /usr/local/lib/bb-record.sh 2>/dev/null || bb_record() { :; }
+act() { say "$*"; bb_record watchdog "$*"; }
 
 proc_pids() {
     for c in /proc/[0-9]*/cmdline; do
@@ -123,15 +126,15 @@ while true; do
     case "$status" in
         WEDGE*)
             lock="/config/wine/dosdevices/c:/ProgramData/Backblaze/bzdata/bzbackup/lock_bzfileid_4_hour_lock.lck"
-            say "detected: ${status}"
+            act "detected: ${status}"
             if rm -f "$lock" 2>/dev/null; then
-                say "recovered: removed the stale four-hour lock; the next pass should proceed"
+                act "recovered: removed the stale four-hour lock; the next pass should proceed"
             else
-                say "could NOT remove ${lock} - check permissions on the config volume; next attempt in ${COOLDOWN_MIN}m"
+                act "could NOT remove ${lock} - check permissions on the config volume; next attempt in ${COOLDOWN_MIN}m"
             fi
             ;;
         HANG*)
-            say "detected: ${status}"
+            act "detected: ${status}"
             # Children first, then every other bztransmit, which is the pass
             # and any sidecar. The pass must go: it never gives up waiting for
             # a child on its own.
@@ -159,16 +162,16 @@ while true; do
                     # shellcheck disable=SC2086
                     kill -9 $still 2>/dev/null
                 fi
-                say "recovered: killed push children [${pids}] and the pass [${pass}]; bzserv will start a fresh pass"
+                act "recovered: killed push children [${pids}] and the pass [${pass}]; bzserv will start a fresh pass"
             else
-                say "no bztransmit found to kill - transmit may have cleared on its own"
+                act "no bztransmit found to kill - transmit may have cleared on its own"
             fi
             ;;
         DOWN*)
             # startapp watches the service itself and restarts it, with the
             # environment the client was started under. Nothing to add here
             # beyond making the state visible in this log.
-            say "detected: ${status} - the container restarts the service on its own; see the startapp log"
+            act "detected: ${status} - the container restarts the service on its own; see the startapp log"
             ;;
         *)
             say "unrecognised health status: ${status}"

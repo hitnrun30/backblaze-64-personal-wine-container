@@ -468,6 +468,12 @@ reported high memory after an update when the cause was the client, which reads 
 list into memory during a scan. Use this field to name the program before you report a
 problem.
 
+### `recovery`
+
+What the container did for itself in the last 24 hours, oldest first: `{at, source, text}`,
+where `source` is `watchdog` (a stale lock removed, a stuck pass stopped), `service` (bzserv
+restarted by startapp's watch) or `doctor` (a `--fix` repair). Empty when it did nothing.
+
 ### `memory`, `swap`
 
 Container memory and host swap. Each one can be `null` where the platform does not report

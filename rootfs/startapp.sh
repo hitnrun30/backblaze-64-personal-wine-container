@@ -250,6 +250,9 @@ create_skin_aliases() {
 # this check said fine while bb-health said DOWN, and the start below did
 # nothing because a start on a service the manager thinks is running is a
 # no-op. bb-health and bb-doctor look at the process table for the same reason.
+. /usr/local/lib/bb-record.sh 2>/dev/null || bb_record() { :; }
+service_event() { service_event "$1"; bb_record service "$1"; }
+
 bzserv_running() {
     for _c in /proc/[0-9]*/cmdline; do
         [ -r "$_c" ] || continue
@@ -283,16 +286,16 @@ ensure_bzserv() {
     tries=0
     while [ "$tries" -lt 2 ]; do
         sleep 60
-        bzserv_running && { [ "$tries" -eq 0 ] || log_message "SERVICE: bzserv is running now"; return 0; }
+        bzserv_running && { [ "$tries" -eq 0 ] || service_event "bzserv is running now"; return 0; }
         tries=$((tries + 1))
-        log_message "SERVICE: bzserv is not running - starting it (attempt ${tries})"
+        service_event "bzserv is not running - starting it (attempt ${tries})"
         bzserv_start
     done
     sleep 30
     if bzserv_running; then
-        log_message "SERVICE: bzserv is running now"
+        service_event "bzserv is running now"
     else
-        log_message "SERVICE: bzserv did not start - no backup passes will run; see bzlogs/bzserv"
+        service_event "bzserv did not start - no backup passes will run; see bzlogs/bzserv"
     fi
 }
 
@@ -301,13 +304,13 @@ watch_bzserv() {
     while true; do
         sleep 300
         bzserv_running && continue
-        log_message "SERVICE: bzserv has stopped - starting it again"
+        service_event "bzserv has stopped - starting it again"
         bzserv_start
         sleep 60
         if bzserv_running; then
-            log_message "SERVICE: bzserv is running now"
+            service_event "bzserv is running now"
         else
-            log_message "SERVICE: bzserv did not start - will try again in five minutes; see bzlogs/bzserv"
+            service_event "bzserv did not start - will try again in five minutes; see bzlogs/bzserv"
         fi
     done
 }
