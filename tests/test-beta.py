@@ -404,6 +404,89 @@ ok(_chunks([_push("23:58:00")], MIDNIGHT) == 0,
 for _n, _v in _saved.items():
     setattr(bbdata, _n, _v)
 
+# The completed table counts a split file's parts from the thread slots. A slot
+# is a file named for the thread (bzt_003_bzt.xml) and rewritten for every push
+# on it, so a slot that had finished one part and started the next of the same
+# film inside one poll interval looked unchanged and the part went uncounted.
+# Every film on a live container came out short: 59/60, 57/60, 55/60.
+_FILM = "D:\\film.mkv"
+_PART = 10485760
+_FSIZE = 60 * _PART - 100                     # 60 parts, the last one short
+
+
+def _slot_xml(started, sha):
+    fields = ["v"] * 8 + [sha, "0", "0", "0", str(_PART), _FILM]
+    hexline = ("\t".join(fields) + "\n").encode().hex()
+    return ('<bzt numBytes_to_send_in_shm="%d" gmt_started="%s" which_thread="3" '
+            'hex_encoded_bz_done_line="%s"/>' % (_PART, started, hexline))
+
+
+def _done_line(hms):
+    return ("2026-09-09 %s - Leaving bztrans_thread_push - very successful first_attempt, "
+            "which_threadStr=03 elapsedSec=8, numBytes=%d bytes (10 MBytes), kBitsPerSec=10000"
+            % (hms, _PART))
+
+
+_slot = {}
+_lines = []
+_getsize = os.path.getsize
+
+
+def _poll(slot_xml, lines, at):
+    _slot["bzt_003_bzt.xml"] = slot_xml
+    _lines[:] = lines
+    bbdata.scan_procs = lambda: ((1, ["bzt_003_bzt.xml"], False, True) if slot_xml
+                                 else (0, [], False, True))
+    bbdata.read = lambda path: _slot.get(os.path.basename(path), "") \
+        if path.endswith("_bzt.xml") else ""
+    bbdata.tail_log = lambda n=800: "\n".join(_lines) + "\n"
+    bbdata.client_state = lambda: (None, None)
+    bbdata.activity = lambda: None
+    bbdata.mem_info = lambda t: {}
+    bbdata.memory_by_process = lambda limit=5: []
+    bbdata.backup_totals = lambda *a, **k: None
+    bbdata.time = _PinnedClock(at)
+    os.path.getsize = lambda path: _FSIZE if path.endswith("/film.mkv") else _getsize(path)
+    try:
+        bbdata.gather(None)
+    finally:
+        bbdata.time = _saved["time"]
+        os.path.getsize = _getsize
+
+
+def _film_row():
+    return next((r for r in bbdata._recent if r.get("chunked") and r["name"] == "film.mkv"), None)
+
+
+bbdata._inflight = {}
+del bbdata._recent[:]
+del getattr(bbdata, "_pending", [])[:]
+_L0 = _done_line("11:59:00")
+_poll(_slot_xml("20260909120000", "aaa"), [_L0], NOON)
+ok(_film_row() is None, "a part still in flight is not a completed part")
+# Part A finished and part B began and finished between polls; the slot now
+# carries part C. Two completion lines landed for thread 3.
+_LA, _LB = _done_line("12:00:08"), _done_line("12:00:16")
+_poll(_slot_xml("20260909120016", "ccc"), [_L0, _LA, _LB], NOON + 18)
+_r = _film_row()
+ok(_r is not None and _r["done"] == 2 and _r["total"] == 60,
+   "a slot reused for the next part of the same film counts both parts (%r)" % ((_r and (_r["done"], _r["total"])),))
+ok(_r is not None and _r["bytes"] == 2 * _PART, "and their bytes")
+# Part C ended but its line has not reached the log yet.
+_poll(None, [_L0, _LA, _LB], NOON + 26)
+ok(_film_row()["done"] == 2 and len(getattr(bbdata, "_pending", [])) == 1,
+   "a push gone before its line lands is held over, not lost")
+_LC = _done_line("12:00:24")
+_poll(None, [_L0, _LA, _LB, _LC], NOON + 28)
+ok(_film_row()["done"] == 3 and not getattr(bbdata, "_pending", []),
+   "and counted on the poll its line arrives (%d/60)" % _film_row()["done"])
+_poll(None, [_L0, _LA, _LB, _LC], NOON + 30)
+ok(_film_row()["done"] == 3, "a line already counted is not counted again")
+bbdata._inflight = {}
+del bbdata._recent[:]
+for _n, _v in _saved.items():
+    setattr(bbdata, _n, _v)
+
 # The banner sits beside a gauge drawn by human(), which renders TB at 1024^4.
 # At a decimal 10^12 it announced the first terabyte over a gauge reading
 # 931.3 GB, and the mark is latched to disk, so waiting could not correct it.

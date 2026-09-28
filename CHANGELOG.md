@@ -46,6 +46,14 @@ the additions below. The `:beta` tag is mutable, so each published build has its
 
 ### Fixed
 
+- The completed table showed every split file a few parts short (59/60, 57/60) with the
+  size to match. A part is counted when the thread slot that carried it moves on, and the slot
+  file is named for the thread, not the push: a slot that had finished one part and started
+  the next of the same film inside the two seconds between polls looked unchanged, so that
+  part was never counted. Each push is now told apart by its start stamp and chunk hash,
+  every completion line the thread wrote since the last poll is counted rather than only
+  the newest, a push gone before its line reached the log is held over for a few polls,
+  and the total comes from the client's own chunk map while the file is the one in hand.
 - The Settings tab's Warnings and events list and its Dismissed table now follow dismissals made
   on the Status tab or the Monitor without a reload. Both are polled every half minute and
   redrawn only when the answer changed, so checkboxes being edited are left alone.

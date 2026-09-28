@@ -75,6 +75,10 @@ def _touch(d, key, value, limit=_SEEN_MAX):
 
 _logged = {}                # file name -> True, an ordered set for the one-off log line
 _inflight = {}
+# Pushes that ended but whose completion line had not landed by the poll that
+# found them gone, kept for a few more polls: (name, size, part, thread, seen, tries)
+_pending = []
+PENDING_POLLS = 5
 _recent = []
 _last_named = [None]        # last whole file the client named
 _sess = 0
@@ -1524,9 +1528,27 @@ def gather(prev):
             sb += int(m.group(2))
     ptbps = int(sb / ss) if ss > 0 else 175000
 
+    def thread_lines(thr):
+        return [l for l in comps
+                if thr >= 0 and re.search(r'which_threadStr=0*%d(?!\d)' % thr, l)]
+
     def newest_line(thr):
-        return next((l for l in reversed(comps)
-                     if thr >= 0 and re.search(r'which_threadStr=0*%d(?!\d)' % thr, l)), None)
+        mine = thread_lines(thr)
+        return mine[-1] if mine else None
+
+    def lines_after(thr, seen):
+        """The completion lines a thread has written since `seen`, its newest
+        line when the push was first observed. A file's parts are counted from
+        these, so a push that began and ended between two polls still counts:
+        its line is there even though no poll saw it running. If `seen` has
+        left the tail the newest line alone is taken, which is what the old
+        newest-differs test amounted to."""
+        mine = thread_lines(thr)
+        if seen is None:
+            return mine
+        if seen in mine:
+            return mine[mine.index(seen) + 1:]
+        return mine[-1:]
 
     files = []
     cur = {}
@@ -1581,7 +1603,10 @@ def gather(prev):
             seen[cmap[sha][0]] = "inflight"
             inflight_now.add(cmap[sha][0])
         files.append((name, part, fsize, pct, _parts_progress(name, fsize, part)))
-        cur[x] = (name, fsize, part, thr, newest_line(thr))
+        # The thread file is named for its slot (bzt_003_bzt.xml) and rewritten
+        # for every push on it, so the slot name says which thread, not which
+        # push. The start stamp and the chunk hash together do.
+        cur[x] = (name, fsize, part, thr, newest_line(thr), mg.group(1) + ":" + sha)
     act = activity()
     # A small file completes before a poll can find a thread that carries it.
     # These files thus never enter the in-flight table. They also never reach
@@ -1674,25 +1699,49 @@ def gather(prev):
     o["progress_history"] = progress_history(data=bt)
     o["files"] = files
 
-    for xb, (nm, fs, part, thr, seen) in _inflight.items():
-        if xb in cur and cur[xb][0] == nm:
+    # A push has ended when its slot is empty, carries another push, or carries
+    # a push for another file. Testing the file name alone missed the middle
+    # case: a slot that finished one part of a film and had started the next
+    # part of the same film within the two seconds between polls looked
+    # unchanged, and that part was never counted. Every film then came out a
+    # few parts short of its total (59/60, 57/60) in the completed table.
+    ended = _pending[:]
+    del _pending[:]
+    for xb, (nm, fs, part, thr, seen, ident) in _inflight.items():
+        if xb in cur and cur[xb][5] == ident:
             continue
-        line = newest_line(thr)
-        if line is None or line == seen:
+        ended.append((nm, fs, part, thr, seen, 0))
+    for nm, fs, part, thr, seen, tries in ended:
+        lines = lines_after(thr, seen)
+        if not lines:
+            # Gone from the process table before its line reached the log.
+            # Look again next poll rather than lose the part.
+            if tries < PENDING_POLLS and len(_pending) < 50:
+                _pending.append((nm, fs, part, thr, seen, tries + 1))
             continue
-        m = re.search(r'(\d\d:\d\d:\d\d)', line)
-        fallback = m.group(1) if m else time.strftime("%H:%M:%S")
-        tstr, tstr_local = _local_hms(line, fallback)
-        end = _secs(tstr)
-        mn = re.search(r'elapsedSec=(\d+).*?numBytes=(\d+) bytes', line)
-        el = int(mn.group(1)) if mn else 0
-        nb = int(mn.group(2)) if mn else 0
-        if not nb:
-            mb = re.search(r'\((\d+) MBytes\)', line)
-            nb = int(mb.group(1)) * 1048576 if mb else 0
-        mk = re.search(r'kBitsPerSec=(\d+)', line)
-        kb = int(mk.group(1)) if mk else 0
-        if part > 0 and fs > part * 1.5:
+        chunked = part > 0 and fs > part * 1.5
+        # A single-part file gets its newest line: an unseen push before it on
+        # the same thread was some other file, whose name nobody has. The parts
+        # of a split file all belong to that file, so every line counts.
+        for line in (lines if chunked else lines[-1:]):
+            m = re.search(r'(\d\d:\d\d:\d\d)', line)
+            fallback = m.group(1) if m else time.strftime("%H:%M:%S")
+            tstr, tstr_local = _local_hms(line, fallback)
+            end = _secs(tstr)
+            mn = re.search(r'elapsedSec=(\d+).*?numBytes=(\d+) bytes', line)
+            el = int(mn.group(1)) if mn else 0
+            nb = int(mn.group(2)) if mn else 0
+            if not nb:
+                mb = re.search(r'\((\d+) MBytes\)', line)
+                nb = int(mb.group(1)) * 1048576 if mb else 0
+            mk = re.search(r'kBitsPerSec=(\d+)', line)
+            kb = int(mk.group(1)) if mk else 0
+            if not chunked:
+                _recent.append({"chunked": False, "name": nm, "thr": thr, "t": tstr_local,
+                                 "bytes": fs or nb, "secs": el, "kbit": kb})
+                if el > 0 and (fs or nb) > 0:
+                    _completed_hist.append((fs or nb, el))
+                continue
             b = next((r for r in _recent if r["chunked"] and r["name"] == nm and r["done"] < r["total"]), None)
             if b is None:
                 # Every multi-part file produces one push beyond its part count,
@@ -1707,7 +1756,10 @@ def gather(prev):
                     # a reading that makes sense: the next push for this file
                     # brings one, at the cost of one uncounted part.
                     continue
-                total = max(1, -(-fs // part))
+                # The client's own chunk map is the exact count while the file
+                # is the one being worked on; the size divided by the part size
+                # stands in when it is not.
+                total = ctotal if (cname == nm and ctotal) else max(1, -(-fs // part))
                 try:
                     with open(MPLOG, "a") as fh:
                         fh.write("%s  BUNDLE %s file=%d part=%d total=%d\n"
@@ -1730,11 +1782,6 @@ def gather(prev):
                     span += 86400            # parts straddling midnight
                 if span > 0 and b["bytes"] > 0:
                     _completed_hist.append((b["bytes"], span))
-        else:
-            _recent.append({"chunked": False, "name": nm, "thr": thr, "t": tstr_local,
-                             "bytes": fs or nb, "secs": el, "kbit": kb})
-            if el > 0 and (fs or nb) > 0:
-                _completed_hist.append((fs or nb, el))
     del _recent[:-10]
     _inflight = cur
     o["recent"] = list(_recent)
