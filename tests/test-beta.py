@@ -652,6 +652,15 @@ _ih = bbdata.inherit(_ibs)
 ok(_ih and _ih["pct"] == 10.1 and _ih["clumps"] == 2 and _ih["stage_label"] == "downloading the backup state",
    "the inherit progress file reads back: %r" % _ih)
 ok(bbdata.inherit("") is None, "no progress file means no inherit")
+# The file outlives the inherit and may never reach the done stage: a user's
+# sat at tbs_after_files_swap, 60%, for days while passes ran.
+_stuck = '<status inherit_stage="tbs_after_files_swap" prog_out_of_thousand="600" current_clump_number="4" num_clumps_total="4" />'
+ok(bbdata.inherit(_stuck, file_mtime=1000.0, log_mtime=1000.0 + 7200, passes=True) is None,
+   "a progress file an hour older than the transmit log, with a pass started since, is history")
+ok(bbdata.inherit(_stuck, file_mtime=1000.0, log_mtime=1000.0 + 7200, passes=False) is not None,
+   "but not when no pass has started: the client may just be slow")
+ok(bbdata.inherit(_stuck, file_mtime=1000.0, log_mtime=1000.0 + 600, passes=True) is not None,
+   "and not while the file is fresh: a live inherit rewrites it")
 # The file outlives the inherit, reading done_success at 1000 an hour later.
 ok(bbdata.inherit('<status inherit_stage="tbs_done_success" prog_out_of_thousand="1000" ibs_final_result="1" />') is None,
    "a finished inherit is not a reading")

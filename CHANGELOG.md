@@ -39,6 +39,12 @@ the additions below. The `:beta` tag is mutable, so each published build has its
 
 ### Fixed
 
+- An inherit whose progress file never reached the done stage no longer shows as in progress for
+  ever. A user's client left the file at "after files swap, 60%" for days while passes ran
+  normally, and the Status tab, the terminal monitor and bb-doctor all kept announcing an
+  inherit. A live inherit rewrites the file as it goes, so a file an hour older than the transmit
+  log, with a pass started since, now counts as finished; bb-doctor says so in a note, and
+  bb-report collects the file with its age.
 - The memory figure on the Monitor, in the terminal monitor, in the API and in the metrics is now
   the container's processes' own memory, with the page cache shown beside it. It used to follow
   `docker stats`, which charges the cache for every file the client has read to the container;

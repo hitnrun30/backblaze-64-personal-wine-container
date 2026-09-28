@@ -473,12 +473,40 @@ _IBS_STAGES = {"tbs_downloading": "downloading the backup state",
 _IBS_DONE_OK = "tbs_done_success"
 
 
-def inherit(text=None):
+IBS_IDLE = 3600     # seconds without the progress file changing, with passes running, before an inherit counts as over
+
+
+def _newest_log_mtime():
+    try:
+        fs = [os.path.join(LOGDIR, f) for f in os.listdir(LOGDIR) if f.endswith(".log")]
+        return max(os.path.getmtime(p) for p in fs) if fs else None
+    except (OSError, ValueError):
+        return None
+
+
+def inherit(text=None, file_mtime=None, log_mtime=None, passes=None):
     """{stage, stage_label, pct, downloaded, total, clump, clumps, kbit, at,
-    result} while an inherit is in progress, else None."""
+    result} while an inherit is in progress, else None.
+
+    The progress file outlives the inherit, and not every client writes the
+    done stage into it: one sat at tbs_after_files_swap, 60%, for days while
+    passes ran normally (a user's bundle, 2026-09-27). A live inherit rewrites
+    the file as it goes, so a file that has not changed for IBS_IDLE while the
+    transmit log has moved on and a pass has started is history, whatever
+    stage it names. The three readings are parameters so the rule is testable.
+    """
     t = text if text is not None else read(IBS)
     if "inherit_stage" not in t:
         return None
+    try:
+        fm = file_mtime if file_mtime is not None else os.path.getmtime(IBS)
+    except OSError:
+        fm = None
+    lm = log_mtime if log_mtime is not None else _newest_log_mtime()
+    if fm is not None and lm is not None and lm - fm > IBS_IDLE:
+        ran = passes if passes is not None else ("STARTBACKUP" in tail_log(4000))
+        if ran:
+            return None
     def attr(name, cast=str):
         m = re.search(r'\b%s="([^"]*)"' % name, t)
         if not m:

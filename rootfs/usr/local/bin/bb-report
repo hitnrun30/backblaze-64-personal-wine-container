@@ -233,6 +233,12 @@ def build_items():
         ("container/drives.txt", "mapped drives", lambda: run("ls -la /config/wine/dosdevices/ 2>/dev/null")),
         ("backblaze/startapp.log", "container startup log",
          lambda: tail_file("/config/wine/dosdevices/c:/backblaze-wine-startapp.log")),
+        # Stage, percentages, byte counts and the client's own timestamps; no
+        # names. Its age against the transmit log is what says whether an
+        # inherit the page reports is really still running.
+        ("backblaze/inherit.txt", "inherit progress file, with its age",
+         lambda: run("f=/config/wine/dosdevices/c:/ProgramData/Backblaze/bzdata/bzinherit/bz_ibs_progress.xml; "
+                     "[ -f \"$f\" ] && { stat -c 'modified %y' \"$f\"; cat \"$f\"; } || echo 'no progress file'")),
     ]
     for i, p in enumerate(newest_logs(TLOG), start=1):
         items.append(("backblaze/bztransmit_%d.log" % i, "transfer log (most recent)",

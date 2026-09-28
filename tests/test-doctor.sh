@@ -181,6 +181,19 @@ has "$(run --fix)" "fixed: wrote the supportedOS manifest into: system32 syswow6
 grep -q '8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a' "$PFX/drive_c/windows/syswow64/rundll32.exe.manifest" && echo "PASS manifest: with the Windows 10 supportedOS id" || { echo "FAIL manifest: file content wrong"; FAILED=$((FAILED+1)); }
 has "$(run)" "\[ ok \] rundll32 supportedOS manifest present" "manifest: and it is present afterwards"
 
+# ---- the passes drop-in: an inherit whose progress file never reached done -------
+PDROP="$HERE/../rootfs-beta/usr/local/lib/bb-doctor-passes.sh"
+mkdir -p "$BZ/bzinherit"
+printf '<status inherit_stage="tbs_after_files_swap" prog_out_of_thousand="600" />\n' > "$BZ/bzinherit/bz_ibs_progress.xml"
+printf '2026-09-27 21:23:18 1012 - STARTBACKUP\n2026-09-27 21:32:55 1012 - bz_done file recorded for upload: x\n' > "$LOGCUR"
+agef "$BZ/bzinherit/bz_ibs_progress.xml" 86400
+PR="$(env PATH="$FX/bin:$PATH" sh -c 'BZ="$1"; OK(){ echo "[ok] $*"; }; WARN(){ echo "[warn] $*"; }; BAD(){ echo "[FAIL] $*"; }; NOTE(){ echo "  $*"; }; . "$2"' _ "$BZ" "$PDROP" 2>&1)"
+has "$PR" "inherit of the backup state finished earlier (its progress file stopped at tbs_after_files_swap, 60%" "passes: a day-old progress file with passes since is reported as finished"
+agef "$BZ/bzinherit/bz_ibs_progress.xml" 60
+PR="$(env PATH="$FX/bin:$PATH" sh -c 'BZ="$1"; OK(){ echo "[ok] $*"; }; WARN(){ echo "[warn] $*"; }; BAD(){ echo "[FAIL] $*"; }; NOTE(){ echo "  $*"; }; . "$2"' _ "$BZ" "$PDROP" 2>&1)"
+has "$PR" "inherit of the backup state is in progress: tbs_after_files_swap, 60%" "passes: a fresh progress file is still an inherit in progress"
+rm -rf "$BZ/bzinherit"
+
 # ---- the beta's source-drive drop-in: identity by the client's own format --------
 # bzvol_id.xml carries bzVolumeGuid="v00" + 25 hex; bzvolumes.xml maps each id to
 # a mount point as hex (443a5c is D:\). Captured from a live container on

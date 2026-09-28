@@ -15,19 +15,31 @@
 echo "Backup passes"
 # An inherit in progress explains a pass that has not started: nothing runs
 # until the other identity's backup state is downloaded and merged.
+_pl_dir="${BZ}/bzlogs/bztransmit"
+_pl_log="$(ls -t "$_pl_dir"/*.log 2>/dev/null | head -1)"
 _pl_ibs="${BZ}/bzinherit/bz_ibs_progress.xml"
 if [ -f "$_pl_ibs" ] && grep -q "inherit_stage" "$_pl_ibs" 2>/dev/null; then
     _pl_stage="$(sed -n 's/.*inherit_stage="\([^"]*\)".*/\1/p' "$_pl_ibs" | head -1)"
     _pl_pm="$(sed -n 's/.*prog_out_of_thousand="\([0-9]*\)".*/\1/p' "$_pl_ibs" | head -1)"
-    # The file outlives the inherit; a finished one is not news.
+    # The file outlives the inherit, and not every client writes the done stage
+    # into it: one sat at tbs_after_files_swap, 60%, for days while passes ran
+    # (2026-09-27). A live inherit rewrites the file as it goes, so a file an
+    # hour older than the transmit log, with a pass started since, is history.
+    _pl_over=""
+    if [ -n "$_pl_log" ] && grep -q "STARTBACKUP" "$_pl_log" 2>/dev/null; then
+        _pl_fm="$(stat -c %Y "$_pl_ibs" 2>/dev/null)"; _pl_lm="$(stat -c %Y "$_pl_log" 2>/dev/null)"
+        case "$_pl_fm$_pl_lm" in *[!0-9]*|'') ;; *) [ $(( _pl_lm - _pl_fm )) -gt 3600 ] && _pl_over=1 ;; esac
+    fi
     case "$_pl_stage" in
         tbs_done_success) ;;
-        tbs_done*) BAD "an inherit of the backup state finished badly: ${_pl_stage}" ;;
-        *) NOTE "an inherit of the backup state is in progress: ${_pl_stage:-unknown}, $(( ${_pl_pm:-0} / 10 ))%. No pass runs until it finishes." ;;
+        tbs_done*) [ -n "$_pl_over" ] || BAD "an inherit of the backup state finished badly: ${_pl_stage}" ;;
+        *) if [ -n "$_pl_over" ]; then
+               NOTE "an inherit of the backup state finished earlier (its progress file stopped at ${_pl_stage}, $(( ${_pl_pm:-0} / 10 ))%, and passes have run since)"
+           else
+               NOTE "an inherit of the backup state is in progress: ${_pl_stage:-unknown}, $(( ${_pl_pm:-0} / 10 ))%. No pass runs until it finishes."
+           fi ;;
     esac
 fi
-_pl_dir="${BZ}/bzlogs/bztransmit"
-_pl_log="$(ls -t "$_pl_dir"/*.log 2>/dev/null | head -1)"
 if [ -z "$_pl_log" ]; then
     NOTE "no transmit log yet"
 else
