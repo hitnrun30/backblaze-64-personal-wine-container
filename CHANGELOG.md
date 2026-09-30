@@ -46,6 +46,11 @@ the additions below. The `:beta` tag is mutable, so each published build has its
 
 ### Fixed
 
+- The service watch died the first time it had something to say. The build of 28 September
+  that put its events on the recovery log wrapped its logging function in a function of the
+  same name, which called itself until bash crashed, so a bzserv that stopped after that build
+  stayed stopped: on the test host it was down for seven hours while the watchdog reported
+  DOWN every half hour and deferred to a watch that no longer existed. Found from that host.
 - The completed table showed every split file a few parts short (59/60, 57/60) with the
   size to match. A part is counted when the thread slot that carried it moves on, and the slot
   file is named for the thread, not the push: a slot that had finished one part and started

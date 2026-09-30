@@ -251,7 +251,7 @@ create_skin_aliases() {
 # nothing because a start on a service the manager thinks is running is a
 # no-op. bb-health and bb-doctor look at the process table for the same reason.
 . /usr/local/lib/bb-record.sh 2>/dev/null || bb_record() { :; }
-service_event() { service_event "$1"; bb_record service "$1"; }
+service_event() { log_message "SERVICE: $1"; bb_record service "$1"; }
 
 bzserv_running() {
     for _c in /proc/[0-9]*/cmdline; do
