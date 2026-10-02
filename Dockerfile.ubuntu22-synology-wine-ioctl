@@ -1,0 +1,33 @@
+FROM ghcr.io/hitnrun30/backblaze-personal-wine:synology
+
+USER root
+
+# Experimental build: keep the known-good Synology image and replace only the
+# Wine 11.0 Unix-side ntdll module containing NtDeviceIoControlFile().
+# This isolates the Backblaze fixed-drive compatibility experiment from the
+# production :synology image.
+COPY patches/wine-volume-disk-extents.patch /tmp/wine-volume-disk-extents.patch
+
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        build-essential git flex bison pkg-config gcc-mingw-w64-x86-64 && \
+    git clone --depth 1 --branch wine-11.0 \
+        https://github.com/wine-mirror/wine.git /tmp/wine-src && \
+    cd /tmp/wine-src && \
+    patch -p1 < /tmp/wine-volume-disk-extents.patch && \
+    mkdir -p /tmp/wine-build && \
+    cd /tmp/wine-build && \
+    /tmp/wine-src/configure --enable-win64 && \
+    make -j"$(nproc)" -C dlls/ntdll && \
+    test -f /tmp/wine-build/dlls/ntdll/ntdll.so && \
+    NTDLL_TARGET="$(find /opt/wine-stable -path '*/x86_64-unix/ntdll.so' -print -quit)" && \
+    test -n "$NTDLL_TARGET" && \
+    echo "Replacing $NTDLL_TARGET with patched Wine 11.0 ntdll.so" && \
+    cp /tmp/wine-build/dlls/ntdll/ntdll.so "$NTDLL_TARGET" && \
+    rm -rf /tmp/wine-src /tmp/wine-build /tmp/wine-volume-disk-extents.patch && \
+    apt-get purge -y --auto-remove build-essential git flex bison pkg-config gcc-mingw-w64-x86-64 && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+LABEL org.opencontainers.image.description="Synology Backblaze Wine test with IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS compatibility shim"
+ENV WINE_IOCTL_VOLUME_EXTENTS_PATCH=1
