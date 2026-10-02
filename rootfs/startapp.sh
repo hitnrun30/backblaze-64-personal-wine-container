@@ -32,27 +32,31 @@ if [ -f "${WINEPREFIX}system.reg" ] && grep -q '#arch=win32' "${WINEPREFIX}syste
     rm -rf "${WINEPREFIX}"
 fi
 
-# Initialise the prefix on first run.
+# Create host-drive mappings BEFORE Wine initializes the prefix. Wine scans
+# dosdevices when wineserver starts, so first-run mappings must already exist
+# before wineboot or Backblaze only learns about C: and Z:.
+mkdir -p "${WINEPREFIX}dosdevices"
+for x in {d..z}; do
+    if test -d "/drive_${x}"; then
+        log_message "DRIVE: drive_${x} found - pre-linking Wine drive ${x}:"
+        rm -f "${WINEPREFIX}dosdevices/${x}:"
+        ln -s "/drive_${x}/" "${WINEPREFIX}dosdevices/${x}:"
+    fi
+done
+
+# Initialise the prefix only after all mounted backup drives are linked.
 if [ ! -f "${WINEPREFIX}system.reg" ]; then
-    echo "WINE: no prefix found - initialising a fresh win64 prefix"
+    echo "WINE: no prefix found - initialising a fresh win64 prefix with mounted drives present"
     log_message "WINE: initialising fresh win64 prefix"
     wineboot -i
     wineserver -w
 fi
 
-# Map the host backup drives (/drive_d .. /drive_z) to Wine drive letters by
-# creating dosdevices symlinks. This MUST happen here - before the first Wine
-# command that starts the long-lived wineserver (force_windows_10 below). Wine
-# only enumerates its drives when the server starts, so a symlink created later
-# (as this used to be, right before launching Backblaze) is invisible until the
-# *next* container start. That is exactly why a newly added drive only appeared
-# after a restart. Creating the links now, while no server is running, makes the
-# drive available on the very first launch. (Trailing slash on the target is
-# irrelevant to Wine; both /drive_x and /drive_x/ work.)
+# Explicitly mark mounted backup drives as fixed disks. This keeps Wine from
+# classifying bind-mounted NAS folders as removable/network-style volumes.
 for x in {d..z}; do
-    if test -d "/drive_${x}" && ! test -d "${WINEPREFIX}dosdevices/${x}:"; then
-        log_message "DRIVE: drive_${x} found - linking to Wine drive ${x}:"
-        ln -s "/drive_${x}/" "${WINEPREFIX}dosdevices/${x}:"
+    if test -d "/drive_${x}"; then
+        wine reg add 'HKLM\Software\Wine\Drives' /v "${x}:" /t REG_SZ /d hd /f >/dev/null 2>&1
     fi
 done
 
