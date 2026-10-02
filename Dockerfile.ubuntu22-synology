@@ -62,7 +62,7 @@ RUN mkdir -p /config/log /tmp/run && \
         > /etc/apt/preferences.d/no-systemd && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
-        ca-certificates curl xvfb cabextract p7zip-full python3 && \
+        ca-certificates curl xvfb cabextract p7zip-full python3 bindfs && \
     dpkg --add-architecture i386 && \
     mkdir -pm755 /etc/apt/keyrings && \
     curl -fsSL https://dl.winehq.org/wine-builds/winehq.key \
