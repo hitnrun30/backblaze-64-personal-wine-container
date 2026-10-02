@@ -43,21 +43,43 @@ if [ ! -f "${WINEPREFIX}system.reg" ]; then
     wineserver -w
 fi
 
+# Present each Synology share through its own FUSE/bindfs mount. All of the
+# /drive_<letter> bind mounts come from the same Btrfs filesystem on DSM, so Wine
+# otherwise reports them as one underlying volume and Backblaze does not enumerate
+# them as distinct backup drives. A separate bindfs mount gives each drive letter
+# its own FUSE filesystem identity while reading and writing the real share.
+for x in {d..z}; do
+    src="/drive_${x}"
+    dst="/drive_${x}_local"
+    if test -d "$src"; then
+        mkdir -p "$dst"
+        if ! mountpoint -q "$dst"; then
+            log_message "DRIVE: creating bindfs view for ${src} at ${dst}"
+            bindfs "$src" "$dst" || {
+                log_message "DRIVE: bindfs failed for ${src}; falling back to raw mount"
+                rmdir "$dst" 2>/dev/null || true
+            }
+        fi
+    fi
+done
+
 # Map the host backup drives after wineboot has finished and the initial
 # wineserver has exited, but BEFORE the next Wine command starts a new server.
-# Wine scans dosdevices when wineserver starts, so this still makes D:..Z:
-# visible during the first Backblaze launch without corrupting a fresh prefix.
+# Prefer the per-drive bindfs view when available; otherwise fall back to the raw
+# Docker mount so startup remains diagnosable instead of failing outright.
 for x in {d..z}; do
     if test -d "/drive_${x}"; then
-        log_message "DRIVE: drive_${x} found - linking to Wine drive ${x}:"
+        target="/drive_${x}"
+        if mountpoint -q "/drive_${x}_local"; then
+            target="/drive_${x}_local"
+        fi
+        log_message "DRIVE: drive_${x} -> ${target} as Wine drive ${x}:"
         rm -f "${WINEPREFIX}dosdevices/${x}:"
-        ln -s "/drive_${x}/" "${WINEPREFIX}dosdevices/${x}:"
+        ln -s "${target}/" "${WINEPREFIX}dosdevices/${x}:"
     fi
 done
 
 # Mark every mounted backup drive as a fixed disk before Backblaze starts.
-# The links above already exist when this first post-wineboot Wine command starts
-# wineserver, so Wine enumerates them as volumes on the first real application run.
 for x in {d..z}; do
     if test -d "/drive_${x}"; then
         wine reg add 'HKLM\Software\Wine\Drives' /v "${x}:" /t REG_SZ /d hd /f >/dev/null 2>&1
