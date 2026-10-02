@@ -32,28 +32,32 @@ if [ -f "${WINEPREFIX}system.reg" ] && grep -q '#arch=win32' "${WINEPREFIX}syste
     rm -rf "${WINEPREFIX}"
 fi
 
-# Create host-drive mappings BEFORE Wine initializes the prefix. Wine scans
-# dosdevices when wineserver starts, so first-run mappings must already exist
-# before wineboot or Backblaze only learns about C: and Z:.
-mkdir -p "${WINEPREFIX}dosdevices"
-for x in {d..z}; do
-    if test -d "/drive_${x}"; then
-        log_message "DRIVE: drive_${x} found - pre-linking Wine drive ${x}:"
-        rm -f "${WINEPREFIX}dosdevices/${x}:"
-        ln -s "/drive_${x}/" "${WINEPREFIX}dosdevices/${x}:"
-    fi
-done
-
-# Initialise the prefix only after all mounted backup drives are linked.
+# Initialise the prefix on first run. Wine must create the complete prefix
+# before we add custom drive links; creating dosdevices inside an otherwise empty
+# prefix makes wineboot treat it as a broken partial prefix and kernel32.dll cannot
+# be loaded.
 if [ ! -f "${WINEPREFIX}system.reg" ]; then
-    echo "WINE: no prefix found - initialising a fresh win64 prefix with mounted drives present"
+    echo "WINE: no prefix found - initialising a fresh win64 prefix"
     log_message "WINE: initialising fresh win64 prefix"
     wineboot -i
     wineserver -w
 fi
 
-# Explicitly mark mounted backup drives as fixed disks. This keeps Wine from
-# classifying bind-mounted NAS folders as removable/network-style volumes.
+# Map the host backup drives after wineboot has finished and the initial
+# wineserver has exited, but BEFORE the next Wine command starts a new server.
+# Wine scans dosdevices when wineserver starts, so this still makes D:..Z:
+# visible during the first Backblaze launch without corrupting a fresh prefix.
+for x in {d..z}; do
+    if test -d "/drive_${x}"; then
+        log_message "DRIVE: drive_${x} found - linking to Wine drive ${x}:"
+        rm -f "${WINEPREFIX}dosdevices/${x}:"
+        ln -s "/drive_${x}/" "${WINEPREFIX}dosdevices/${x}:"
+    fi
+done
+
+# Mark every mounted backup drive as a fixed disk before Backblaze starts.
+# The links above already exist when this first post-wineboot Wine command starts
+# wineserver, so Wine enumerates them as volumes on the first real application run.
 for x in {d..z}; do
     if test -d "/drive_${x}"; then
         wine reg add 'HKLM\Software\Wine\Drives' /v "${x}:" /t REG_SZ /d hd /f >/dev/null 2>&1
