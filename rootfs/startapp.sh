@@ -54,11 +54,28 @@ for x in {d..z}; do
     if test -d "$src"; then
         mkdir -p "$dst"
         if ! mountpoint -q "$dst"; then
-            log_message "DRIVE: creating bindfs view for ${src} at ${dst}"
-            bindfs "$src" "$dst" || {
+            log_message "DRIVE: creating persistent bindfs view for ${src} at ${dst}"
+            # bindfs daemon mode can disappear under the container supervisor.
+            # Keep FUSE in foreground mode and background that process ourselves
+            # so it remains alive for the lifetime of startapp.sh.
+            bindfs -f "$src" "$dst" &
+            bindfs_pid=$!
+            mounted=false
+            for i in {1..50}; do
+                if mountpoint -q "$dst"; then
+                    mounted=true
+                    break
+                fi
+                sleep 0.1
+            done
+            if [ "$mounted" != "true" ]; then
                 log_message "DRIVE: bindfs failed for ${src}; falling back to raw mount"
+                kill "$bindfs_pid" 2>/dev/null || true
+                wait "$bindfs_pid" 2>/dev/null || true
                 rmdir "$dst" 2>/dev/null || true
-            }
+            else
+                log_message "DRIVE: bindfs mounted ${src} at ${dst} (pid ${bindfs_pid})"
+            fi
         fi
     fi
 done
