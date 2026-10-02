@@ -8,7 +8,9 @@ USER root
 # production :synology image.
 COPY patches/wine-volume-disk-extents.patch /tmp/wine-volume-disk-extents.patch
 
-RUN apt-get update && \
+RUN mkdir -p /config/log /tmp/run && \
+    /etc/cont-init.d/10-init-users.sh && \
+    apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         build-essential git flex bison pkg-config gcc-mingw-w64-x86-64 && \
     git clone --depth 1 --branch wine-11.0 \
@@ -27,7 +29,8 @@ RUN apt-get update && \
     rm -rf /tmp/wine-src /tmp/wine-build /tmp/wine-volume-disk-extents.patch && \
     apt-get purge -y --auto-remove build-essential git flex bison pkg-config gcc-mingw-w64-x86-64 && \
     apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* \
+        /tmp/.passwd /tmp/.group /tmp/.shadow /tmp/.gshadow /tmp/run /config/log
 
 LABEL org.opencontainers.image.description="Synology Backblaze Wine test with IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS compatibility shim"
 ENV WINE_IOCTL_VOLUME_EXTENTS_PATCH=1
