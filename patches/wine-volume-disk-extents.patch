@@ -1,0 +1,64 @@
+diff --git a/dlls/ntdll/unix/file.c b/dlls/ntdll/unix/file.c
+index 00000000000..11111111111 100644
+--- a/dlls/ntdll/unix/file.c
++++ b/dlls/ntdll/unix/file.c
+@@ -79,6 +79,7 @@
+ #endif
+ #ifdef HAVE_LINUX_IOCTL_H
+ #include <linux/ioctl.h>
++#include <linux/fs.h>
+ #endif
+ #ifdef HAVE_LINUX_MAJOR_H
+ # include <linux/major.h>
+@@ -6672,6 +6673,45 @@ NTSTATUS WINAPI NtDeviceIoControlFile( HANDLE handle, HANDLE event, PIO_APC_ROUT
+ {
+     ULONG device = (code >> 16);
+     NTSTATUS status = STATUS_NOT_SUPPORTED;
++
++    /*
++     * Wine's mountmgr.sys implements IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS for
++     * normal Wine volume device objects.  A raw DOS device mapping such as
++     * dosdevices/d:: -> /dev/loop0 is opened through ntdll's Unix-file path
++     * instead, so the request never reaches mountmgr and the server returns
++     * STATUS_NOT_SUPPORTED.  Backblaze Personal 10.x uses this IOCTL to verify
++     * fixed drives.
++     *
++     * For Unix-backed raw devices, synthesize the same single-extent shape that
++     * mountmgr currently returns.  This is intentionally narrow: it only
++     * handles IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS and leaves all other IOCTLs
++     * on Wine's existing paths.
++     */
++    if (code == IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS)
++    {
++        VOLUME_DISK_EXTENTS *extents = out_buffer;
++        ULONGLONG bytes = 0;
++        int fd, needs_close;
++        struct stat st;
++
++        if (!io || !out_buffer) return STATUS_INVALID_PARAMETER;
++        if (out_size < sizeof(*extents)) return STATUS_BUFFER_TOO_SMALL;
++
++        status = server_get_unix_fd( handle, 0, &fd, &needs_close, NULL, NULL );
++        if (status) return status;
++
++#ifdef linux
++        if (ioctl( fd, BLKGETSIZE64, &bytes ) == -1)
++#endif
++        {
++            if (!fstat( fd, &st ) && S_ISREG( st.st_mode )) bytes = st.st_size;
++        }
++
++        if (needs_close) close( fd );
++
++        memset( extents, 0, sizeof(*extents) );
++        extents->NumberOfDiskExtents = 1;
++        extents->Extents[0].DiskNumber = 0;
++        extents->Extents[0].StartingOffset.QuadPart = 0;
++        extents->Extents[0].ExtentLength.QuadPart = bytes;
++        io->Status = STATUS_SUCCESS;
++        io->Information = sizeof(*extents);
++        return STATUS_SUCCESS;
++    }
+ 
+     TRACE( "(%p,%p,%p,%p,%p,0x%08x,%p,0x%08x,%p,0x%08x)\n",
+            handle, event, apc, apc_context, io, code,
