@@ -1,6 +1,5 @@
 FROM ghcr.io/hitnrun30/backblaze-personal-wine:synology
 
-USER root
 
 # Experimental build: keep the known-good Synology image and replace only the
 # Wine 11.0 Unix-side ntdll module containing NtDeviceIoControlFile().
