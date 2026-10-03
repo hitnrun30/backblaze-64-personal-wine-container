@@ -1,5 +1,5 @@
 name: Build Wine IOCTL test image from main
-# Re-trigger after deterministic patch-script fix
+# Re-trigger after --without-x configure fix
 
 on:
   push:
