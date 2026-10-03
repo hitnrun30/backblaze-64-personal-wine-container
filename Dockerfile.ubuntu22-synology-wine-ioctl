@@ -17,7 +17,7 @@ RUN mkdir -p /config/log /tmp/run && \
     python3 /tmp/apply-wine-volume-disk-extents.py && \
     mkdir -p /tmp/wine-build && \
     cd /tmp/wine-build && \
-    /tmp/wine-src/configure --enable-win64 --without-x && \
+    /tmp/wine-src/configure --enable-win64 --without-x --without-freetype && \
     make -j"$(nproc)" -C dlls/ntdll && \
     test -f /tmp/wine-build/dlls/ntdll/ntdll.so && \
     NTDLL_TARGET="$(find /opt/wine-stable -path '*/x86_64-unix/ntdll.so' -print -quit)" && \
