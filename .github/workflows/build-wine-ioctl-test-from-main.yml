@@ -1,5 +1,5 @@
 name: Build Wine IOCTL test image from main
-# Re-trigger after experimental Dockerfile fix
+# Re-trigger after removing invalid USER root
 
 on:
   push:
