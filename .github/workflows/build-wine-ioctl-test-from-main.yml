@@ -1,5 +1,5 @@
 name: Build Wine IOCTL test image from main
-# Re-trigger after removing invalid USER root
+# Re-trigger after deterministic patch-script fix
 
 on:
   push:
